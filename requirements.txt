@@ -1,0 +1,28 @@
+# Core AI / Deep Learning
+torch
+torchaudio
+
+# Audio Processing
+librosa
+soundfile
+numpy
+scipy
+
+# Source Separation (Demucs)
+demucs
+
+# Data handling
+pandas
+
+# Visualization (optional but useful)
+matplotlib
+
+# API (optional if you use FastAPI)
+fastapi
+uvicorn
+
+# Utilities
+tqdm
+
+# Optional (for advanced models / transformers)
+transformers
