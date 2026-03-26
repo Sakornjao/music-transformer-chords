@@ -25,3 +25,13 @@ class ChordPredictor:
         chords = [self.chord_labels[i] for i in preds]
 
         return chords
+
+    def predict_with_indices(self, chroma):
+        x = torch.tensor(chroma).unsqueeze(0).float()
+
+        with torch.no_grad():
+            output = self.model(x)
+
+        preds = torch.argmax(output, dim=-1)[0].numpy()
+
+        return preds
