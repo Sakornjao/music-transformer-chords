@@ -1,3 +1,15 @@
 # Ignore all audio files
 input/*.wav
 input/*.mp3
+
+# OS/editor files
+.DS_Store
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Generated web reports
+chord_report.html
+chord_report.css
+chord_report.js
