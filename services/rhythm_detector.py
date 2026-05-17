@@ -3,22 +3,11 @@ import numpy as np
 
 
 class RhythmDetector:
-    def __init__(self):
-        pass
-
-    def detect(self, audio_path):
-        y, sr = librosa.load(audio_path)
-
-        # Beat tracking
+    def detect(self, y: np.ndarray, sr: int) -> dict:
         tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
-
-        # Safe tempo conversion
         tempo = float(tempo.item() if hasattr(tempo, "item") else tempo)
 
-        # Onset strength
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-
-        # Estimate time signature
         time_signature = self._estimate_time_signature(onset_env, beats)
 
         return {
@@ -27,11 +16,14 @@ class RhythmDetector:
             "time_signature": time_signature
         }
 
-    def _estimate_time_signature(self, onset_env, beats):
+    def _estimate_time_signature(self, onset_env: np.ndarray, beats: np.ndarray) -> str:
         if len(beats) < 8:
             return "Unknown"
 
         beats = beats[beats < len(onset_env)]
+        if len(beats) == 0:
+            return "Unknown"
+
         beat_strengths = onset_env[beats]
 
         max_val = np.max(beat_strengths)
@@ -47,7 +39,7 @@ class RhythmDetector:
 
         return max(scores, key=scores.get)
 
-    def _pattern_score(self, strengths, group_size):
+    def _pattern_score(self, strengths: np.ndarray, group_size: int) -> float:
         score = 0
         count = 0
 
