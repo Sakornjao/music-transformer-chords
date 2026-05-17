@@ -22,8 +22,8 @@ CHORD_COLORS = {
 
 
 def _root_color(chord: str) -> str:
-    root = chord.replace("m", "")
-    return CHORD_COLORS.get(root, "#6b7280")
+    root_label = next((candidate for candidate in sorted(CHORD_COLORS, key=len, reverse=True) if chord.startswith(candidate)), "")
+    return CHORD_COLORS.get(root_label, "#6b7280")
 
 
 def _group_by_bar(aligned_chords: list[dict]) -> list[list[dict]]:
@@ -36,11 +36,11 @@ def _render_bar(bar_items: list[dict]) -> str:
     end = bar_items[-1]["end"]
 
     chord_blocks = []
-    for item in bar_items:
-        chord = escape(str(item["chord"]))
-        start_time = escape(str(item["start"]))
-        end_time = escape(str(item["end"]))
-        color = _root_color(str(item["chord"]))
+    for chord_event in bar_items:
+        chord = escape(str(chord_event["chord"]))
+        start_time = escape(str(chord_event["start"]))
+        end_time = escape(str(chord_event["end"]))
+        color = _root_color(str(chord_event["chord"]))
         chord_blocks.append(
             f"""
             <button class="chord-block" style="--chord-color: {color}" data-start="{start_time}" data-end="{end_time}">
@@ -75,6 +75,7 @@ def render_html(
     time_signature = escape(str(result["time_signature"]))
     bars = _group_by_bar(result["aligned_chords"])
     bar_markup = "\n".join(_render_bar(bar) for bar in bars)
+    chord_events_json = json.dumps(result["aligned_chords"]).replace("</", "<\\/")
 
     return f"""<!doctype html>
 <html lang="en">
@@ -104,12 +105,16 @@ def render_html(
                 <strong id="currentChord">Ready</strong>
                 <small id="currentRange">Click a chord to jump</small>
             </div>
+            <label class="sync-control">
+                <span>Sync offset <strong id="syncOffsetValue">0.00s</strong></span>
+                <input id="syncOffset" type="range" min="-2" max="2" step="0.05" value="0">
+            </label>
         </section>
         <div class="timeline">
             {bar_markup}
         </div>
     </main>
-    <script id="chord-events" type="application/json">{escape(json.dumps(result["aligned_chords"]))}</script>
+    <script id="chord-events" type="application/json">{chord_events_json}</script>
     <script src="{escape(js_src)}"></script>
 </body>
 </html>
@@ -200,7 +205,7 @@ h1 {
     top: 0;
     z-index: 5;
     display: grid;
-    grid-template-columns: 1fr minmax(220px, 320px);
+    grid-template-columns: 1fr minmax(220px, 320px) minmax(180px, 240px);
     gap: 16px;
     align-items: center;
     margin-top: 18px;
@@ -232,6 +237,30 @@ audio {
 .now-playing strong {
     font-size: 24px;
     line-height: 1.1;
+}
+
+.sync-control {
+    display: grid;
+    gap: 8px;
+}
+
+.sync-control span {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0;
+}
+
+.sync-control strong {
+    color: var(--ink);
+    font-size: 12px;
+}
+
+.sync-control input {
+    width: 100%;
 }
 
 .timeline {
@@ -325,9 +354,9 @@ audio {
         flex-direction: column;
     }
 
-    .player-panel {
-        position: static;
-        grid-template-columns: 1fr;
+            .player-panel {
+                position: static;
+                grid-template-columns: 1fr;
     }
 
     .now-playing {
@@ -348,43 +377,55 @@ audio {
 
 
 def render_js() -> str:
-    return """const events = JSON.parse(document.getElementById("chord-events").textContent);
-const audio = document.getElementById("audio");
+    return """const chordEvents = JSON.parse(document.getElementById("chord-events").textContent);
+const audioPlayer = document.getElementById("audio");
 const currentChord = document.getElementById("currentChord");
 const currentRange = document.getElementById("currentRange");
-const blocks = Array.from(document.querySelectorAll(".chord-block"));
+const chordButtons = Array.from(document.querySelectorAll(".chord-block"));
+const syncOffsetInput = document.getElementById("syncOffset");
+const syncOffsetValue = document.getElementById("syncOffsetValue");
 
-function findCurrentEvent(time) {
-    return events.find((event) => time >= event.start && time < event.end);
+function getSyncOffset() {
+    return Number(syncOffsetInput.value);
 }
 
-function setActive(event) {
-    blocks.forEach((block) => {
-        const isActive = event
-            && Number(block.dataset.start) === event.start
-            && Number(block.dataset.end) === event.end;
-        block.classList.toggle("is-active", isActive);
+function findCurrentEvent(time) {
+    const correctedTime = time - getSyncOffset();
+    return chordEvents.find((chordEvent) => correctedTime >= chordEvent.start && correctedTime < chordEvent.end);
+}
+
+function setActiveChord(chordEvent) {
+    chordButtons.forEach((button) => {
+        const isActive = chordEvent
+            && Number(button.dataset.start) === chordEvent.start
+            && Number(button.dataset.end) === chordEvent.end;
+        button.classList.toggle("is-active", isActive);
     });
 
-    if (!event) {
+    if (!chordEvent) {
         currentChord.textContent = "Ready";
         currentRange.textContent = "Click a chord to jump";
         return;
     }
 
-    currentChord.textContent = `Bar ${event.bar} - ${event.chord}`;
-    currentRange.textContent = `${event.start}s - ${event.end}s`;
+    currentChord.textContent = `Bar ${chordEvent.bar} - ${chordEvent.chord}`;
+    currentRange.textContent = `${chordEvent.start}s - ${chordEvent.end}s`;
 }
 
-blocks.forEach((block) => {
-    block.addEventListener("click", () => {
-        audio.currentTime = Number(block.dataset.start);
-        audio.play();
+chordButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        audioPlayer.currentTime = Math.max(0, Number(button.dataset.start) + getSyncOffset());
+        audioPlayer.play();
     });
 });
 
-audio.addEventListener("timeupdate", () => {
-    setActive(findCurrentEvent(audio.currentTime));
+audioPlayer.addEventListener("timeupdate", () => {
+    setActiveChord(findCurrentEvent(audioPlayer.currentTime));
+});
+
+syncOffsetInput.addEventListener("input", () => {
+    syncOffsetValue.textContent = `${getSyncOffset().toFixed(2)}s`;
+    setActiveChord(findCurrentEvent(audioPlayer.currentTime));
 });
 """
 

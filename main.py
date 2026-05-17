@@ -29,15 +29,12 @@ class MusicAnalysisPipeline:
         logger.info("Extracting chroma")
         chroma = self.feature_extractor.extract_chroma(y, sr)
 
-        logger.info("Predicting chords")
-        chord_indices = self.chord_predictor.predict_with_indices(chroma)
-
         logger.info("Detecting rhythm")
         rhythm = self.rhythm_detector.detect(y, sr)
 
         beat_times = librosa.frames_to_time(rhythm["beats"], sr=sr)
         aligned_chords = self._align_chords_with_beats(
-            chord_indices,
+            chroma,
             beat_times,
             sr,
             rhythm["time_signature"]
@@ -51,7 +48,7 @@ class MusicAnalysisPipeline:
 
     def _align_chords_with_beats(
         self,
-        chord_indices: np.ndarray,
+        chroma: np.ndarray,
         beat_times: np.ndarray,
         sr: int,
         time_signature: str,
@@ -67,17 +64,19 @@ class MusicAnalysisPipeline:
         bar_number = 1
         hop_length = 512
 
-        if len(chord_indices) == 0:
+        if len(chroma) == 0:
             return aligned
 
         for i in range(len(beat_times) - 1):
             start = beat_times[i]
             end = beat_times[i + 1]
 
-            frame_idx = int((start * sr) / hop_length)
-            frame_idx = min(frame_idx, len(chord_indices) - 1)
-
-            chord = labels[chord_indices[frame_idx]]
+            start_frame = max(0, int((start * sr) / hop_length))
+            end_frame = max(start_frame + 1, int((end * sr) / hop_length))
+            end_frame = min(end_frame, len(chroma))
+            chroma_segment = chroma[start_frame:end_frame]
+            chord_index = self.chord_predictor.predict_segment_index(chroma_segment)
+            chord = labels[chord_index]
 
             aligned.append({
                 "bar": bar_number,

@@ -11,6 +11,11 @@ from services.rhythm_detector import RhythmDetector
 class _FakeChordPredictor:
     chord_labels = ["C", "D", "E"]
 
+    def predict_segment_index(self, chroma_segment):
+        if len(chroma_segment) == 0:
+            return 0
+        return int(np.argmax(np.mean(chroma_segment, axis=0)))
+
 
 class MusicAnalysisPipelineTest(unittest.TestCase):
     def test_aligns_chords_to_bars(self):
@@ -18,7 +23,13 @@ class MusicAnalysisPipelineTest(unittest.TestCase):
         pipeline.chord_predictor = _FakeChordPredictor()
 
         aligned = pipeline._align_chords_with_beats(
-            chord_indices=np.array([0, 1, 2, 1, 0]),
+            chroma=np.array([
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+                [0, 1, 0],
+                [1, 0, 0],
+            ]),
             beat_times=np.array([0, 1, 2, 3, 4]),
             sr=512,
             time_signature="2/4",
@@ -39,7 +50,13 @@ class MusicAnalysisPipelineTest(unittest.TestCase):
         pipeline.chord_predictor = _FakeChordPredictor()
 
         aligned = pipeline._align_chords_with_beats(
-            chord_indices=np.array([0, 1, 2, 1, 0]),
+            chroma=np.array([
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+                [0, 1, 0],
+                [1, 0, 0],
+            ]),
             beat_times=np.array([0, 1, 2, 3, 4, 5]),
             sr=512,
             time_signature="Unknown",
@@ -54,7 +71,7 @@ class MusicAnalysisPipelineTest(unittest.TestCase):
         pipeline.chord_predictor = _FakeChordPredictor()
 
         aligned = pipeline._align_chords_with_beats(
-            chord_indices=np.array([]),
+            chroma=np.array([]),
             beat_times=np.array([0, 1, 2]),
             sr=512,
             time_signature="4/4",
@@ -81,17 +98,51 @@ class RhythmDetectorTest(unittest.TestCase):
 
 
 class ChordPredictorTest(unittest.TestCase):
+    def _chroma(self, notes):
+        chroma = np.zeros((1, 12))
+        chroma[0, notes] = 1
+        return chroma
+
     def test_template_fallback_predicts_c_major(self):
         predictor = ChordPredictor()
-        chroma = np.array([[1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0]])
 
-        self.assertEqual(predictor.predict(chroma), ["C"])
+        self.assertEqual(predictor.predict(self._chroma([0, 4, 7])), ["C"])
 
     def test_template_fallback_predicts_a_minor(self):
         predictor = ChordPredictor()
-        chroma = np.array([[1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0]])
 
-        self.assertEqual(predictor.predict(chroma), ["Am"])
+        self.assertEqual(predictor.predict(self._chroma([9, 0, 4])), ["Am"])
+
+    def test_template_fallback_predicts_dominant_seventh(self):
+        predictor = ChordPredictor()
+
+        self.assertEqual(predictor.predict(self._chroma([4, 8, 11, 2])), ["E7"])
+
+    def test_template_fallback_predicts_major_seventh(self):
+        predictor = ChordPredictor()
+
+        self.assertEqual(predictor.predict(self._chroma([0, 4, 7, 11])), ["Cmaj7"])
+
+    def test_template_fallback_predicts_half_diminished(self):
+        predictor = ChordPredictor()
+
+        self.assertIn(predictor.predict(self._chroma([6, 9, 0, 4]))[0], ["F#m7b5", "Am6"])
+
+    def test_predict_segment_uses_average_chroma(self):
+        predictor = ChordPredictor()
+        c_major = self._chroma([0, 4, 7])[0]
+        g_major = self._chroma([7, 11, 2])[0]
+        segment = np.array([c_major, c_major, g_major])
+
+        chord_index = predictor.predict_segment_index(segment)
+
+        self.assertEqual(predictor.chord_labels[chord_index], "C")
+
+    def test_template_fallback_exposes_advanced_labels(self):
+        predictor = ChordPredictor()
+
+        self.assertIn("Cmaj7", predictor.chord_labels)
+        self.assertIn("F#m7b5", predictor.chord_labels)
 
 
 class ReportRendererTest(unittest.TestCase):
@@ -116,6 +167,9 @@ class ReportRendererTest(unittest.TestCase):
         self.assertIn("<audio id=\"audio\"", html)
         self.assertIn("class=\"chord-block\"", html)
         self.assertIn("data-start=\"0\"", html)
+        self.assertIn("id=\"syncOffset\"", html)
+        self.assertIn('"bar": 1', html)
+        self.assertNotIn("&quot;bar&quot;", html)
 
 
 if __name__ == "__main__":
