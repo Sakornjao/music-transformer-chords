@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 import numpy as np
 
@@ -17,7 +18,46 @@ class _FakeChordPredictor:
         return int(np.argmax(np.mean(chroma_segment, axis=0)))
 
 
+class _FakeDemucsService:
+    def separate_piano(self, audio_path):
+        return Path("separated/htdemucs_6s/song/piano.wav")
+
+    def separate_harmony(self, audio_path):
+        return Path("separated/htdemucs_6s/song/harmony.wav")
+
+
 class MusicAnalysisPipelineTest(unittest.TestCase):
+    def test_piano_source_uses_separated_piano_audio(self):
+        pipeline = MusicAnalysisPipeline.__new__(MusicAnalysisPipeline)
+        pipeline.audio_path = Path("input/song.wav")
+        pipeline.source = "piano_only"
+        pipeline.demucs_service = _FakeDemucsService()
+
+        self.assertEqual(
+            pipeline._resolve_analysis_audio_path(),
+            Path("separated/htdemucs_6s/song/piano.wav"),
+        )
+
+    def test_harmony_source_uses_combined_harmony_audio(self):
+        pipeline = MusicAnalysisPipeline.__new__(MusicAnalysisPipeline)
+        pipeline.audio_path = Path("input/song.wav")
+        pipeline.source = "harmony"
+        pipeline.demucs_service = _FakeDemucsService()
+
+        self.assertEqual(
+            pipeline._resolve_analysis_audio_path(),
+            Path("separated/htdemucs_6s/song/harmony.wav"),
+        )
+
+    def test_normalizes_piano_only_source_aliases(self):
+        pipeline = MusicAnalysisPipeline.__new__(MusicAnalysisPipeline)
+
+        self.assertEqual(pipeline._normalize_source("piano"), "piano_only")
+        self.assertEqual(pipeline._normalize_source("piano-only"), "piano_only")
+        self.assertEqual(pipeline._normalize_source("harmonic"), "harmony")
+        self.assertEqual(pipeline._normalize_source("instruments"), "harmony")
+        self.assertEqual(pipeline._normalize_source("mix"), "mix")
+
     def test_aligns_chords_to_bars(self):
         pipeline = MusicAnalysisPipeline.__new__(MusicAnalysisPipeline)
         pipeline.chord_predictor = _FakeChordPredictor()
@@ -96,6 +136,33 @@ class RhythmDetectorTest(unittest.TestCase):
 
         self.assertEqual(detector._estimate_time_signature(onset_env, beats), "Unknown")
 
+    def test_estimates_four_four_from_four_pulse_accents(self):
+        detector = RhythmDetector()
+        onset_env = np.zeros(80)
+        beats = np.arange(0, 64, 4)
+        onset_env[beats] = np.tile([1.0, 0.2, 0.35, 0.2], 4)
+        onset_env[beats[:-1] + 2] = 0.28
+
+        self.assertEqual(detector._estimate_time_signature(onset_env, beats), "4/4")
+
+    def test_estimates_twelve_eight_from_compound_four_pulse_accents(self):
+        detector = RhythmDetector()
+        onset_env = np.zeros(80)
+        beats = np.arange(0, 64, 4)
+        onset_env[beats] = np.tile([1.0, 0.2, 0.35, 0.2], 4)
+        onset_env[beats[:-1] + 1] = 0.3
+        onset_env[beats[:-1] + 3] = 0.3
+
+        self.assertEqual(detector._estimate_time_signature(onset_env, beats), "12/8")
+
+    def test_estimates_three_four_from_three_pulse_accents(self):
+        detector = RhythmDetector()
+        onset_env = np.zeros(32)
+        beats = np.arange(18)
+        onset_env[beats] = np.tile([1.0, 0.2, 0.25], 6)
+
+        self.assertEqual(detector._estimate_time_signature(onset_env, beats), "3/4")
+
 
 class ChordPredictorTest(unittest.TestCase):
     def _chroma(self, notes):
@@ -150,6 +217,8 @@ class ReportRendererTest(unittest.TestCase):
         result = {
             "tempo": 120.0,
             "time_signature": "4/4",
+            "source": "harmony",
+            "analysis_audio_path": "separated/htdemucs_6s/song/harmony.wav",
             "aligned_chords": [
                 {"bar": 1, "chord": "C", "start": 0, "end": 1},
                 {"bar": 1, "chord": "G", "start": 1, "end": 2},
@@ -162,12 +231,19 @@ class ReportRendererTest(unittest.TestCase):
         self.assertIn("song.wav", html)
         self.assertIn("<strong>120.00</strong>", html)
         self.assertIn("<strong>4/4</strong>", html)
+        self.assertIn("<strong>Harmony</strong>", html)
         self.assertIn("<strong>C</strong>", html)
         self.assertIn("<strong>G</strong>", html)
         self.assertIn("<audio id=\"audio\"", html)
+        self.assertIn("id=\"audio-sources\"", html)
+        self.assertIn("data-audio-source=\"mix\"", html)
+        self.assertIn("data-audio-source=\"harmony\"", html)
         self.assertIn("class=\"chord-block\"", html)
         self.assertIn("data-start=\"0\"", html)
         self.assertIn("id=\"syncOffset\"", html)
+        self.assertIn("id=\"pianoMode\"", html)
+        self.assertIn("id=\"playPianoTimeline\"", html)
+        self.assertIn("id=\"stopPianoTimeline\"", html)
         self.assertIn('"bar": 1', html)
         self.assertNotIn("&quot;bar&quot;", html)
 

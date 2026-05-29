@@ -1,6 +1,7 @@
 # Ignore all audio files
 input/*.wav
 input/*.mp3
+separated/
 
 # OS/editor files
 .DS_Store

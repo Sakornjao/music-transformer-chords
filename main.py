@@ -8,23 +8,33 @@ import numpy as np
 
 from services.feature_extractor import FeatureExtractor
 from services.chord_predictor import ChordPredictor
+from services.demucs_service import DemucsService
 from services.report_renderer import write_report
-from services.rhythm_detector import RhythmDetector
+from services.rhythm_detector import RhythmDetector, TIME_SIGNATURE_BEATS_PER_BAR
 
 logger = logging.getLogger(__name__)
 
 
 class MusicAnalysisPipeline:
-    def __init__(self, audio_path: str | Path, checkpoint_path: str | Path | None = None):
+    def __init__(
+        self,
+        audio_path: str | Path,
+        checkpoint_path: str | Path | None = None,
+        source: str = "mix",
+    ):
         self.audio_path = Path(audio_path)
+        self.source = self._normalize_source(source)
 
         self.feature_extractor = FeatureExtractor()
         self.chord_predictor = ChordPredictor(checkpoint_path)
+        self.demucs_service = DemucsService()
         self.rhythm_detector = RhythmDetector()
 
     def run(self) -> dict:
-        logger.info("Loading audio from %s", self.audio_path)
-        y, sr = self.feature_extractor.load_audio(self.audio_path)
+        analysis_path = self._resolve_analysis_audio_path()
+
+        logger.info("Loading %s audio from %s", self.source, analysis_path)
+        y, sr = self.feature_extractor.load_audio(analysis_path)
 
         logger.info("Extracting chroma")
         chroma = self.feature_extractor.extract_chroma(y, sr)
@@ -43,8 +53,29 @@ class MusicAnalysisPipeline:
         return {
             "tempo": rhythm["tempo"],
             "time_signature": rhythm["time_signature"],
+            "source": self.source,
+            "analysis_audio_path": str(analysis_path),
+            "original_audio_path": str(self.audio_path),
             "aligned_chords": aligned_chords
         }
+
+    def _resolve_analysis_audio_path(self) -> Path:
+        if self.source == "mix":
+            return self.audio_path
+        if self.source == "harmony":
+            return self.demucs_service.separate_harmony(self.audio_path)
+        if self.source == "piano_only":
+            return self.demucs_service.separate_piano(self.audio_path)
+        raise ValueError(f"Unsupported source: {self.source}")
+
+    def _normalize_source(self, source: str) -> str:
+        if source in {"piano", "piano-only", "piano_only"}:
+            return "piano_only"
+        if source in {"harmony", "harmonic", "instruments"}:
+            return "harmony"
+        if source == "mix":
+            return "mix"
+        raise ValueError(f"Unsupported source: {source}")
 
     def _align_chords_with_beats(
         self,
@@ -55,10 +86,7 @@ class MusicAnalysisPipeline:
     ) -> list[dict]:
         labels = self.chord_predictor.chord_labels
 
-        try:
-            beats_per_bar = int(time_signature.split("/")[0])
-        except (AttributeError, IndexError, ValueError):
-            beats_per_bar = 4
+        beats_per_bar = TIME_SIGNATURE_BEATS_PER_BAR.get(time_signature, 4)
 
         aligned = []
         bar_number = 1
@@ -96,6 +124,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze tempo, time signature, and chord timeline for an audio file.")
     parser.add_argument("audio_path", nargs="?", default="input/accompaniment.wav", help="Path to the audio file.")
     parser.add_argument("--checkpoint", help="Optional trained chord model checkpoint path.")
+    parser.add_argument(
+        "--source",
+        choices=["mix", "harmony", "piano", "piano-only"],
+        default="harmony",
+        help="Audio source used for chord detection. Harmony combines piano, guitar, bass, and other stems.",
+    )
     parser.add_argument("--limit", type=int, default=16, help="Number of bars or chord events to print.")
     parser.add_argument("--report", help="Optional HTML report output path, for example reports/chords.html.")
     parser.add_argument(
@@ -133,10 +167,11 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_args()
 
-    pipeline = MusicAnalysisPipeline(args.audio_path, args.checkpoint)
+    pipeline = MusicAnalysisPipeline(args.audio_path, args.checkpoint, args.source)
     result = pipeline.run()
 
     print("\n=== RESULT ===")
+    print(f"Source: {result['source']} ({result['analysis_audio_path']})")
     print(f"Tempo: {result['tempo']} BPM")
     print(f"Time Signature: {result['time_signature']}")
 
