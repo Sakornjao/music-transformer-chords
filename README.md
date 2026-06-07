@@ -54,6 +54,20 @@ NUMBA_CACHE_DIR=/tmp/numba_cache python3 main.py input/song.wav --source harmony
 
 The report includes an audio mode switch for inspecting the original full mix, harmony stem, or separated piano-only stem when those files are available.
 
+Export a MusicXML sheet with chord symbols and simple piano chord blocks:
+
+```bash
+NUMBA_CACHE_DIR=/tmp/numba_cache python3 main.py input/song.wav --source harmony --export-musicxml chords.musicxml
+```
+
+Open the generated `.musicxml` file in MuseScore, Finale, Sibelius, or another notation app to view/export sheet music.
+
+Export a PDF chord chart directly:
+
+```bash
+NUMBA_CACHE_DIR=/tmp/numba_cache python3 main.py input/song.wav --source harmony --export-pdf chords.pdf
+```
+
 Create a browser GUI report:
 
 ```bash

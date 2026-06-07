@@ -1,5 +1,7 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from xml.etree import ElementTree as ET
 
 import numpy as np
 
@@ -7,6 +9,7 @@ from main import MusicAnalysisPipeline, format_bar
 from services.chord_predictor import ChordPredictor
 from services.report_renderer import render_report
 from services.rhythm_detector import RhythmDetector
+from services.sheet_exporter import write_chord_pdf, write_musicxml
 
 
 class _FakeChordPredictor:
@@ -246,6 +249,48 @@ class ReportRendererTest(unittest.TestCase):
         self.assertIn("id=\"stopPianoTimeline\"", html)
         self.assertIn('"bar": 1', html)
         self.assertNotIn("&quot;bar&quot;", html)
+
+
+class SheetExporterTest(unittest.TestCase):
+    def test_writes_musicxml_with_chord_symbols_and_piano_notes(self):
+        result = {
+            "tempo": 120.0,
+            "time_signature": "12/8",
+            "aligned_chords": [
+                {"bar": 1, "chord": "Cmaj7", "start": 0, "end": 1},
+                {"bar": 1, "chord": "G7", "start": 1, "end": 2},
+            ],
+        }
+
+        with TemporaryDirectory() as tmpdir:
+            output_path = write_musicxml(result, "input/song.wav", Path(tmpdir) / "chords.musicxml")
+
+            root = ET.parse(output_path).getroot()
+
+        self.assertEqual(root.tag, "score-partwise")
+        self.assertEqual(root.findtext(".//time/beats"), "12")
+        self.assertEqual(root.findtext(".//time/beat-type"), "8")
+        harmony_texts = [kind.attrib.get("text") for kind in root.findall(".//harmony/kind")]
+        self.assertEqual(harmony_texts, ["Cmaj7", "G7"])
+        self.assertGreaterEqual(len(root.findall(".//note/pitch")), 7)
+        self.assertIsNotNone(root.find(".//note/dot"))
+
+    def test_writes_pdf_chord_chart(self):
+        result = {
+            "tempo": 120.0,
+            "time_signature": "12/8",
+            "source": "harmony",
+            "aligned_chords": [
+                {"bar": 1, "chord": "Cmaj7", "start": 0, "end": 1},
+                {"bar": 1, "chord": "G7", "start": 1, "end": 2},
+            ],
+        }
+
+        with TemporaryDirectory() as tmpdir:
+            output_path = write_chord_pdf(result, "input/song.wav", Path(tmpdir) / "chords.pdf")
+
+            self.assertTrue(output_path.exists())
+            self.assertEqual(output_path.read_bytes()[:4], b"%PDF")
 
 
 if __name__ == "__main__":

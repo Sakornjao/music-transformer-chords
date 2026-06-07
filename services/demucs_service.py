@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+from scipy import signal
 import torch
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,21 @@ class DemucsService:
     def separate_piano(self, audio_path: str | Path) -> Path:
         return self.separate_stem(audio_path, "piano")
 
+    def separate_enhanced_piano(self, audio_path: str | Path) -> Path:
+        audio_path = Path(audio_path)
+        enhanced_path = self._expected_stem_path(audio_path, "piano_enhanced")
+        if enhanced_path.exists():
+            logger.info("Using cached enhanced piano stem from %s", enhanced_path)
+            return enhanced_path
+
+        piano_path = self.separate_piano(audio_path)
+        audio, sample_rate = sf.read(piano_path, always_2d=True, dtype="float32")
+        enhanced_audio = self.enhance_piano_audio(audio, sample_rate)
+
+        enhanced_path.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(enhanced_path, enhanced_audio, sample_rate)
+        return enhanced_path
+
     def separate_harmony(self, audio_path: str | Path) -> Path:
         audio_path = Path(audio_path)
         harmony_path = self._expected_stem_path(audio_path, "harmony")
@@ -78,12 +94,47 @@ class DemucsService:
         sf.write(harmony_path, mix, sample_rate)
         return harmony_path
 
+    def enhance_piano_audio(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        enhanced = np.asarray(audio, dtype=np.float32)
+        if enhanced.ndim == 1:
+            enhanced = enhanced.reshape(-1, 1)
+
+        enhanced = self._high_pass_filter(enhanced, sample_rate, cutoff_hz=70.0)
+        enhanced = self._soft_noise_gate(enhanced, threshold_ratio=0.035)
+        enhanced = self._normalize_peak(enhanced, target_peak=0.92)
+        return np.asarray(enhanced, dtype=np.float32)
+
     def _expected_stem_path(self, audio_path: Path, stem: str) -> Path:
         return self.output_dir / self.model_name / audio_path.stem / f"{stem}.wav"
 
     def _find_stem_path(self, audio_path: Path, stem: str) -> Path | None:
         matches = sorted(self.output_dir.glob(f"*/{audio_path.stem}/{stem}.wav"))
         return matches[0] if matches else None
+
+    def _high_pass_filter(self, audio: np.ndarray, sample_rate: int, cutoff_hz: float) -> np.ndarray:
+        nyquist = sample_rate / 2
+        if cutoff_hz <= 0 or cutoff_hz >= nyquist:
+            return audio
+
+        sos = signal.butter(2, cutoff_hz / nyquist, btype="highpass", output="sos")
+        return signal.sosfiltfilt(sos, audio, axis=0).astype(np.float32)
+
+    def _soft_noise_gate(self, audio: np.ndarray, threshold_ratio: float) -> np.ndarray:
+        envelope = np.max(np.abs(audio), axis=1, keepdims=True)
+        peak = float(np.max(envelope))
+        if peak <= 0:
+            return audio
+
+        threshold = peak * threshold_ratio
+        gate = np.clip((envelope - threshold) / max(threshold, 1e-8), 0.0, 1.0)
+        gate = gate * gate * (3 - 2 * gate)
+        return audio * gate
+
+    def _normalize_peak(self, audio: np.ndarray, target_peak: float) -> np.ndarray:
+        peak = float(np.max(np.abs(audio)))
+        if peak <= 0:
+            return audio
+        return audio * (target_peak / peak)
 
     def _run_demucs(self, audio_path: Path) -> None:
         try:

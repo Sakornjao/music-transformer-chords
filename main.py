@@ -11,6 +11,7 @@ from services.chord_predictor import ChordPredictor
 from services.demucs_service import DemucsService
 from services.report_renderer import write_report
 from services.rhythm_detector import RhythmDetector, TIME_SIGNATURE_BEATS_PER_BAR
+from services.sheet_exporter import write_chord_pdf, write_musicxml
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,8 @@ class MusicAnalysisPipeline:
             return self.audio_path
         if self.source == "harmony":
             return self.demucs_service.separate_harmony(self.audio_path)
+        if self.source == "piano_enhanced":
+            return self.demucs_service.separate_enhanced_piano(self.audio_path)
         if self.source == "piano_only":
             return self.demucs_service.separate_piano(self.audio_path)
         raise ValueError(f"Unsupported source: {self.source}")
@@ -71,6 +74,8 @@ class MusicAnalysisPipeline:
     def _normalize_source(self, source: str) -> str:
         if source in {"piano", "piano-only", "piano_only"}:
             return "piano_only"
+        if source in {"piano-enhanced", "piano_enhanced", "enhanced-piano"}:
+            return "piano_enhanced"
         if source in {"harmony", "harmonic", "instruments"}:
             return "harmony"
         if source == "mix":
@@ -126,12 +131,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", help="Optional trained chord model checkpoint path.")
     parser.add_argument(
         "--source",
-        choices=["mix", "harmony", "piano", "piano-only"],
+        choices=["mix", "harmony", "piano", "piano-only", "piano-enhanced"],
         default="harmony",
         help="Audio source used for chord detection. Harmony combines piano, guitar, bass, and other stems.",
     )
     parser.add_argument("--limit", type=int, default=16, help="Number of bars or chord events to print.")
     parser.add_argument("--report", help="Optional HTML report output path, for example reports/chords.html.")
+    parser.add_argument("--export-musicxml", help="Optional MusicXML sheet export path, for example reports/chords.musicxml.")
+    parser.add_argument("--export-pdf", help="Optional PDF chord chart export path, for example reports/chords.pdf.")
     parser.add_argument(
         "--view",
         choices=["bars", "events"],
@@ -180,6 +187,14 @@ def main() -> None:
     if args.report:
         report_path = write_report(result, args.audio_path, args.report)
         print(f"\nGUI report written to: {report_path}")
+
+    if args.export_musicxml:
+        musicxml_path = write_musicxml(result, args.audio_path, args.export_musicxml)
+        print(f"\nMusicXML sheet written to: {musicxml_path}")
+
+    if args.export_pdf:
+        pdf_path = write_chord_pdf(result, args.audio_path, args.export_pdf)
+        print(f"\nPDF chord chart written to: {pdf_path}")
 
 
 if __name__ == "__main__":
