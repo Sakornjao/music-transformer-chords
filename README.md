@@ -68,6 +68,44 @@ Export a PDF chord chart directly:
 NUMBA_CACHE_DIR=/tmp/numba_cache python3 main.py input/song.wav --source harmony --export-pdf chords.pdf
 ```
 
+## Graphs
+
+Create a Matplotlib chord timeline:
+
+```bash
+python3 main.py input/accompaniment.wav --source mix --export-chart reports/chords.png
+```
+
+Create a frequency-domain graph with FFT magnitude and spectrogram:
+
+```bash
+python3 main.py input/accompaniment.wav --source mix --export-frequency-chart reports/frequency.png
+```
+
+Preview:
+
+![Frequency-domain analysis](reports/frequency.png)
+
+Create a magnitude spectrum:
+
+```bash
+python3 main.py input/accompaniment.wav --source mix --export-magnitude-spectrum reports/magnitude_spectrum.png
+```
+
+Preview:
+
+![Magnitude spectrum](reports/magnitude_spectrum.png)
+
+Create a magnitude spectrum for only the first detected chord:
+
+```bash
+python3 main.py input/accompaniment.wav --source mix --first-chord-only --export-magnitude-spectrum reports/first_chord_magnitude_spectrum.png --view events
+```
+
+Preview:
+
+![First chord magnitude spectrum](reports/first_chord_magnitude_spectrum.png)
+
 Create a browser GUI report:
 
 ```bash

@@ -8,6 +8,7 @@ import numpy as np
 
 from services.feature_extractor import FeatureExtractor
 from services.chord_predictor import ChordPredictor
+from services.chart_exporter import write_chord_chart, write_frequency_domain_chart, write_magnitude_spectrum_chart
 from services.demucs_service import DemucsService
 from services.report_renderer import write_report
 from services.rhythm_detector import RhythmDetector, TIME_SIGNATURE_BEATS_PER_BAR
@@ -136,7 +137,21 @@ def parse_args() -> argparse.Namespace:
         help="Audio source used for chord detection. Harmony combines piano, guitar, bass, and other stems.",
     )
     parser.add_argument("--limit", type=int, default=16, help="Number of bars or chord events to print.")
+    parser.add_argument(
+        "--first-chord-only",
+        action="store_true",
+        help="Keep only the first detected chord event in printed and exported outputs.",
+    )
     parser.add_argument("--report", help="Optional HTML report output path, for example reports/chords.html.")
+    parser.add_argument("--export-chart", help="Optional Matplotlib chart output path, for example reports/chords.png.")
+    parser.add_argument(
+        "--export-frequency-chart",
+        help="Optional Matplotlib frequency-domain output path, for example reports/frequency.png.",
+    )
+    parser.add_argument(
+        "--export-magnitude-spectrum",
+        help="Optional Matplotlib magnitude spectrum output path, for example reports/magnitude_spectrum.png.",
+    )
     parser.add_argument("--export-musicxml", help="Optional MusicXML sheet export path, for example reports/chords.musicxml.")
     parser.add_argument("--export-pdf", help="Optional PDF chord chart export path, for example reports/chords.pdf.")
     parser.add_argument(
@@ -170,12 +185,22 @@ def print_chord_timeline(aligned_chords: list[dict], view: str, limit: int) -> N
         print(format_bar(list(bar_items)))
 
 
+def keep_first_chord_only(result: dict) -> dict:
+    first_chord_events = result.get("aligned_chords", [])[:1]
+    return {
+        **result,
+        "aligned_chords": first_chord_events,
+    }
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_args()
 
     pipeline = MusicAnalysisPipeline(args.audio_path, args.checkpoint, args.source)
     result = pipeline.run()
+    if args.first_chord_only:
+        result = keep_first_chord_only(result)
 
     print("\n=== RESULT ===")
     print(f"Source: {result['source']} ({result['analysis_audio_path']})")
@@ -187,6 +212,24 @@ def main() -> None:
     if args.report:
         report_path = write_report(result, args.audio_path, args.report)
         print(f"\nGUI report written to: {report_path}")
+
+    if args.export_chart:
+        chart_path = write_chord_chart(result, args.audio_path, args.export_chart)
+        print(f"\nMatplotlib chart written to: {chart_path}")
+
+    if args.export_frequency_chart:
+        frequency_chart_path = write_frequency_domain_chart(result["analysis_audio_path"], args.export_frequency_chart)
+        print(f"\nFrequency-domain chart written to: {frequency_chart_path}")
+
+    if args.export_magnitude_spectrum:
+        first_chord_event = result["aligned_chords"][0] if args.first_chord_only and result["aligned_chords"] else None
+        magnitude_spectrum_path = write_magnitude_spectrum_chart(
+            result["analysis_audio_path"],
+            args.export_magnitude_spectrum,
+            start_time=first_chord_event["start"] if first_chord_event else None,
+            end_time=first_chord_event["end"] if first_chord_event else None,
+        )
+        print(f"\nMagnitude spectrum written to: {magnitude_spectrum_path}")
 
     if args.export_musicxml:
         musicxml_path = write_musicxml(result, args.audio_path, args.export_musicxml)

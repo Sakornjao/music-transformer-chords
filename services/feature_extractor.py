@@ -1,5 +1,8 @@
 from pathlib import Path
+import os
+import tempfile
 
+os.environ.setdefault("NUMBA_CACHE_DIR", str(Path(tempfile.gettempdir()) / "music_transformer_chords_numba"))
 import librosa
 import numpy as np
 

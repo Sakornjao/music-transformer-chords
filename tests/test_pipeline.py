@@ -4,8 +4,15 @@ from tempfile import TemporaryDirectory
 from xml.etree import ElementTree as ET
 
 import numpy as np
+import soundfile as sf
 
-from main import MusicAnalysisPipeline, format_bar
+from main import MusicAnalysisPipeline, format_bar, keep_first_chord_only
+from services.chart_exporter import (
+    _frequency_to_note_label,
+    write_chord_chart,
+    write_frequency_domain_chart,
+    write_magnitude_spectrum_chart,
+)
 from services.chord_predictor import ChordPredictor
 from services.report_renderer import render_report
 from services.rhythm_detector import RhythmDetector
@@ -129,6 +136,20 @@ class MusicAnalysisPipelineTest(unittest.TestCase):
         ]
 
         self.assertEqual(format_bar(bar), "[Bar 1] 0s -> 2s: C 0s-1s | D 1s-2s")
+
+    def test_keeps_first_chord_only(self):
+        result = {
+            "tempo": 120.0,
+            "aligned_chords": [
+                {"bar": 1, "chord": "C", "start": 0, "end": 1},
+                {"bar": 1, "chord": "G", "start": 1, "end": 2},
+            ],
+        }
+
+        filtered = keep_first_chord_only(result)
+
+        self.assertEqual(filtered["aligned_chords"], [{"bar": 1, "chord": "C", "start": 0, "end": 1}])
+        self.assertEqual(result["aligned_chords"][1]["chord"], "G")
 
 
 class RhythmDetectorTest(unittest.TestCase):
@@ -291,6 +312,75 @@ class SheetExporterTest(unittest.TestCase):
 
             self.assertTrue(output_path.exists())
             self.assertEqual(output_path.read_bytes()[:4], b"%PDF")
+
+
+class ChartExporterTest(unittest.TestCase):
+    def test_writes_matplotlib_chord_chart(self):
+        result = {
+            "tempo": 120.0,
+            "time_signature": "4/4",
+            "source": "harmony",
+            "aligned_chords": [
+                {"bar": 1, "chord": "C", "start": 0, "end": 1},
+                {"bar": 1, "chord": "G7", "start": 1, "end": 2},
+                {"bar": 2, "chord": "Am", "start": 2, "end": 3},
+            ],
+        }
+
+        with TemporaryDirectory() as tmpdir:
+            output_path = write_chord_chart(result, "input/song.wav", Path(tmpdir) / "chords.png")
+
+            self.assertTrue(output_path.exists())
+            self.assertEqual(output_path.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_writes_frequency_domain_chart(self):
+        sample_rate = 22050
+        time = np.linspace(0, 1, sample_rate, endpoint=False)
+        audio = 0.5 * np.sin(2 * np.pi * 440 * time)
+
+        with TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "sine.wav"
+            output_path = Path(tmpdir) / "frequency.png"
+            sf.write(audio_path, audio, sample_rate)
+
+            written_path = write_frequency_domain_chart(audio_path, output_path)
+
+            self.assertTrue(written_path.exists())
+            self.assertEqual(written_path.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_writes_magnitude_spectrum_chart(self):
+        sample_rate = 22050
+        time = np.linspace(0, 1, sample_rate, endpoint=False)
+        audio = 0.5 * np.sin(2 * np.pi * 440 * time)
+
+        with TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "sine.wav"
+            output_path = Path(tmpdir) / "magnitude.png"
+            sf.write(audio_path, audio, sample_rate)
+
+            written_path = write_magnitude_spectrum_chart(audio_path, output_path)
+
+            self.assertTrue(written_path.exists())
+            self.assertEqual(written_path.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_writes_sliced_magnitude_spectrum_chart(self):
+        sample_rate = 22050
+        time = np.linspace(0, 2, sample_rate * 2, endpoint=False)
+        audio = 0.5 * np.sin(2 * np.pi * 440 * time)
+
+        with TemporaryDirectory() as tmpdir:
+            audio_path = Path(tmpdir) / "sine.wav"
+            output_path = Path(tmpdir) / "magnitude_slice.png"
+            sf.write(audio_path, audio, sample_rate)
+
+            written_path = write_magnitude_spectrum_chart(audio_path, output_path, start_time=0.5, end_time=1.0)
+
+            self.assertTrue(written_path.exists())
+            self.assertEqual(written_path.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_frequency_to_note_label(self):
+        self.assertEqual(_frequency_to_note_label(440), "A4")
+        self.assertEqual(_frequency_to_note_label(261.63), "C4")
 
 
 if __name__ == "__main__":
