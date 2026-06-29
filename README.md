@@ -34,6 +34,67 @@ piano.wav + guitar.wav + bass.wav + other.wav -> harmony.wav
 
 This is the default source because bass and guitar usually make chord roots clearer than piano-only audio.
 
+## Data Pipeline
+
+The project analyzes an audio file and turns it into chord, rhythm, chart, and report outputs.
+
+```text
+Input audio
+  -> optional Demucs source separation
+  -> audio loading
+  -> chroma feature extraction
+  -> rhythm detection
+  -> chord prediction
+  -> beat/bar alignment
+  -> reports, graphs, MusicXML, and PDF exports
+```
+
+Pipeline steps:
+
+```text
+1. Load audio
+   services/feature_extractor.py
+   librosa loads the audio into numerical samples.
+
+2. Optional source separation
+   services/demucs_service.py
+   Demucs can create piano-only or harmony stems.
+
+3. Extract features
+   services/feature_extractor.py
+   Chroma features summarize pitch energy across 12 note classes.
+
+4. Detect rhythm
+   services/rhythm_detector.py
+   The code estimates tempo, beats, and time signature.
+
+5. Predict chords
+   services/chord_predictor.py
+   A Transformer checkpoint can predict chords, or the fallback template matcher estimates them from chroma.
+
+6. Align chords to bars
+   main.py
+   Chord predictions are matched with beat times and grouped into bars.
+
+7. Export results
+   services/report_renderer.py     -> browser HTML report
+   services/chart_exporter.py      -> Matplotlib graphs
+   services/sheet_exporter.py      -> MusicXML and PDF chord charts
+```
+
+Main output data shape:
+
+```python
+{
+    "tempo": 69.84,
+    "time_signature": "3/4",
+    "source": "mix",
+    "aligned_chords": [
+        {"bar": 1, "chord": "B", "start": 1.28, "end": 2.14}
+    ]
+}
+```
+
 Inspect piano-only audio when needed:
 
 ```bash
